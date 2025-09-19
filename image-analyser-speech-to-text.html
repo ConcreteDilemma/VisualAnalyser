@@ -1,0 +1,198 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Image Analyser — Live Speech to Text</title>
+  <style>
+    body { font-family: sans-serif; padding: 20px; background: #f4f6fa; }
+    h1 { font-size: 1.5rem; }
+    #imagePreview, #summaryImage { max-width: 100%; margin-top: 15px; display: none; }
+    textarea, input[type="text"] { width: 100%; min-height: 80px; margin-top: 10px; padding: 8px; font-size: 1rem; }
+    input[type="text"] { min-height: initial; }
+    button { margin-top: 10px; padding: 8px 16px; font-size: 1rem; }
+    #qaSection, #summary, #referenceSection { margin-top: 20px; }
+    #summary, #reviewPanel { display: none; background: white; padding: 20px; border: 1px solid #ccc; }
+    .qa { margin-bottom: 12px; }
+    #speechStatus { margin-left: 10px; font-weight: bold; }
+  </style>
+</head>
+<body>
+  <h1>Art Image Analyser</h1>
+  <p>Upload an image, answer questions (by typing or speaking), then summarise and export.</p>
+
+  <input type="file" id="fileInput" accept="image/*" />
+  <img id="imagePreview" />
+
+  <div id="referenceSection">
+    <label><strong>Who made the artwork?</strong></label>
+    <input type="text" id="artistName" placeholder="e.g. Myself, or Yinka Shonibare, etc." />
+    <label><strong>Is this your own work or someone else's?</strong></label>
+    <input type="text" id="ownership" placeholder="e.g. My own / Another artist's / Collaborative" />
+  </div>
+
+  <div id="qaSection">
+    <h2 id="currentQuestion"></h2>
+    <textarea id="answerBox" placeholder="Type or speak your answer here..."></textarea><br>
+    <button id="speechBtn">🎤 Start Speaking</button><span id="speechStatus"></span><br>
+    <button id="nextBtn">Next Question</button>
+    <button id="reviewBtn" style="margin-left:10px;">Summarise my thoughts</button>
+  </div>
+
+  <div id="reviewPanel">
+    <h2>Your Thoughts So Far</h2>
+    <div id="reviewAnswers"></div>
+  </div>
+
+  <div id="summary">
+    <h2>Your Final Answers</h2>
+    <div id="answersContainer"></div>
+    <img id="summaryImage" />
+    <button id="downloadBtn">Download as PNG</button>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <script>
+    const questions = [
+      "What can you see and what is your first impression?",
+      "What mood or atmosphere is suggested by this image?",
+      "What materials, tools or processes might have been used?",
+      "How is the composition arranged?",
+      "How does this relate to your own work or interests?",
+    ];
+
+    const usedQuestions = new Set();
+    const answers = [];
+
+    const fileInput = document.getElementById('fileInput');
+    const imagePreview = document.getElementById('imagePreview');
+    const summaryImage = document.getElementById('summaryImage');
+    const currentQuestion = document.getElementById('currentQuestion');
+    const answerBox = document.getElementById('answerBox');
+    const nextBtn = document.getElementById('nextBtn');
+    const reviewBtn = document.getElementById('reviewBtn');
+    const reviewPanel = document.getElementById('reviewPanel');
+    const reviewAnswers = document.getElementById('reviewAnswers');
+    const summary = document.getElementById('summary');
+    const answersContainer = document.getElementById('answersContainer');
+    const speechBtn = document.getElementById('speechBtn');
+    const speechStatus = document.getElementById('speechStatus');
+
+    let uploadedImageDataURL = null;
+    let recognizing = false;
+    let recognition;
+
+    if ('webkitSpeechRecognition' in window) {
+      recognition = new webkitSpeechRecognition();
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = 'en-GB';
+
+      recognition.onstart = () => {
+        recognizing = true;
+        speechStatus.textContent = ' 🎙️ Listening...';
+      };
+      recognition.onend = () => {
+        recognizing = false;
+        speechStatus.textContent = ' ⏹️ Stopped';
+      };
+      recognition.onresult = (event) => {
+        let transcript = '';
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+          transcript += event.results[i][0].transcript;
+        }
+        answerBox.value = transcript.trim();
+      };
+    } else {
+      speechBtn.disabled = true;
+      speechStatus.textContent = 'Speech recognition not supported.';
+    }
+
+    speechBtn.addEventListener('click', () => {
+      if (!recognizing) {
+        recognition.start();
+      } else {
+        recognition.stop();
+      }
+    });
+
+    fileInput.addEventListener('change', () => {
+      const file = fileInput.files[0];
+      if (file && file.type.startsWith('image/')) {
+        const reader = new FileReader();
+        reader.onload = () => {
+          uploadedImageDataURL = reader.result;
+          imagePreview.src = reader.result;
+          imagePreview.style.display = 'block';
+        };
+        reader.readAsDataURL(file);
+      }
+    });
+
+    function getNextQuestion() {
+      const remaining = questions.filter(q => !usedQuestions.has(q));
+      if (remaining.length === 0) return null;
+      const q = remaining[Math.floor(Math.random() * remaining.length)];
+      usedQuestions.add(q);
+      return q;
+    }
+
+    let currentQ = getNextQuestion();
+    currentQuestion.textContent = currentQ;
+
+    nextBtn.addEventListener('click', () => {
+      const ans = answerBox.value.trim();
+      if (ans) answers.push({ q: currentQ, a: ans });
+      const next = getNextQuestion();
+      if (!next) {
+        alert("You've answered all available questions. Please summarise your thoughts.");
+        return;
+      }
+      currentQ = next;
+      currentQuestion.textContent = currentQ;
+      answerBox.value = "";
+      reviewPanel.style.display = 'none';
+    });
+
+    reviewBtn.addEventListener('click', () => {
+      reviewAnswers.innerHTML = "";
+      answers.forEach(entry => {
+        const div = document.createElement('div');
+        div.className = 'qa';
+        div.innerHTML = `<strong>${entry.q}</strong><br>${entry.a}`;
+        reviewAnswers.appendChild(div);
+      });
+      reviewPanel.style.display = 'block';
+      summary.style.display = 'block';
+      answersContainer.innerHTML = `
+        <p><strong>Artist:</strong> ${document.getElementById('artistName').value || '(not stated)'}</p>
+        <p><strong>Ownership:</strong> ${document.getElementById('ownership').value || '(not stated)'}</p>
+        <hr />
+        ${reviewAnswers.innerHTML}
+      `;
+      if (uploadedImageDataURL) {
+        summaryImage.src = uploadedImageDataURL;
+        summaryImage.style.display = 'block';
+      }
+    });
+
+    document.getElementById('downloadBtn').addEventListener('click', () => {
+      html2canvas(summary).then(canvas => {
+        const link = document.createElement('a');
+        link.download = 'image-analysis.png';
+        link.href = canvas.toDataURL();
+        link.click();
+      });
+    });
+
+    function showQuestion() {
+      if (currentQ) {
+        currentQuestion.textContent = currentQ;
+        answerBox.value = "";
+      }
+    }
+    showQuestion();
+  </script>
+</body>
+</html>
